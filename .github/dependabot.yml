@@ -11,9 +11,19 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # Flarum 2 has a different search extension API. Keep this release line on 1.x.
+    ignore:
+      - dependency-name: flarum/core
+        update-types:
+          - version-update:semver-major
 
   - package-ecosystem: npm
     directory: /js
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # flarum-webpack-config 3.x targets the Flarum 2 frontend runtime.
+    ignore:
+      - dependency-name: flarum-webpack-config
+        update-types:
+          - version-update:semver-major
