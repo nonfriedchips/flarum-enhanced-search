@@ -1,0 +1,19 @@
+nonfriedchips-enhanced-search:
+  admin:
+    scout_conflict: Enhanced Search and Scout Search compete for Flarum 1.x's single full-text search slot. Disable one of them to avoid an ambiguous search driver and duplicate indexing.
+    index_dirty: The enhanced index needs a rebuild. Fuzzy retrieval is disabled and search has fallen back to native/prefix results. Run php flarum enhanced-search:reindex.
+    settings:
+      typo_tolerance_label: Typo tolerance
+      typo_tolerance_help: Allow one or two insertions, deletions, substitutions, or adjacent transpositions after n-gram candidate retrieval. Numeric-only terms are always exact.
+      search_post_content_label: Search post content
+      search_post_content_help: Include visible comment posts in enhanced candidate retrieval. Disable this on very large forums if an external search service is preferred.
+      one_typo_length_label: Minimum length for one typo
+      one_typo_length_help: Terms shorter than this only use exact, prefix, and substring matching. Four works well for short CJK phrases; five is more conservative for Latin text.
+      two_typo_length_label: Minimum length for two typos
+      two_typo_length_help: The minimum term length at which two edits are accepted. The hard maximum is two.
+      native_result_threshold_label: Native result threshold
+      native_result_threshold_help: Enhanced n-gram retrieval runs only when MySQL full-text search returns fewer results than this value.
+      candidate_limit_label: Total fuzzy candidate limit
+      candidate_limit_help: Maximum combined title and post candidates before Unicode edit-distance ranking, with a hard cap of 300. Larger values improve recall but use more CPU.
+      suggestion_min_length_label: Suggestion minimum length
+      suggestion_min_length_help: Characters required before the header search requests suggestions. Clear Flarum's cache after changing this value.

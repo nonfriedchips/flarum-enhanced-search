@@ -1,0 +1,68 @@
+{
+    "name": "nonfriedchips/flarum-enhanced-search",
+    "description": "Hybrid typo-tolerant and CJK-friendly search for Flarum 1.8",
+    "keywords": [
+        "flarum",
+        "search",
+        "fuzzy-search",
+        "cjk",
+        "ngram"
+    ],
+    "type": "flarum-extension",
+    "license": "MIT",
+    "homepage": "https://github.com/nonfriedchips/flarum-enhanced-search",
+    "support": {
+        "issues": "https://github.com/nonfriedchips/flarum-enhanced-search/issues",
+        "source": "https://github.com/nonfriedchips/flarum-enhanced-search"
+    },
+    "authors": [
+        {
+            "name": "nonfriedchips",
+            "email": "non_fried_chips@buaa.edu.cn"
+        }
+    ],
+    "require": {
+        "ext-mbstring": "*",
+        "php": "^8.0",
+        "flarum/core": "^1.8"
+    },
+    "autoload": {
+        "psr-4": {
+            "NonFriedChips\\EnhancedSearch\\": "src/"
+        }
+    },
+    "extra": {
+        "flarum-extension": {
+            "title": "Enhanced Search",
+            "category": "feature",
+            "icon": {
+                "name": "fas fa-search-plus",
+                "backgroundColor": "#3454d1",
+                "color": "#ffffff"
+            },
+            "optional-dependencies": [
+                "clarkwinkelmann/flarum-ext-scout",
+                "flarum/nicknames"
+            ]
+        },
+        "flarum-cli": {
+            "modules": {
+                "githubActions": true
+            }
+        },
+        "database-support": [
+            "mysql"
+        ]
+    },
+    "scripts": {
+        "test": "@test:unit",
+        "test:unit": "php -d error_reporting=22527 tests/unit.php",
+        "test:boot": "php -d error_reporting=22527 tests/boot-smoke.php",
+        "test:integration": "php -d error_reporting=22527 tests/integration.php"
+    },
+    "scripts-descriptions": {
+        "test:unit": "Run Unicode normalization, query planning, and fuzzy-ranking tests",
+        "test:boot": "Boot a local Flarum site and verify enabled extension service registration",
+        "test:integration": "Run committed-fixture MySQL tests against an enabled local Flarum installation"
+    }
+}

@@ -1,0 +1,19 @@
+nonfriedchips-enhanced-search:
+  admin:
+    scout_conflict: 增强搜索与 Scout Search 会争用 Flarum 1.x 唯一的全文搜索槽位。请先禁用其中一个，否则检索驱动和索引维护行为不确定。
+    index_dirty: 增强搜索索引需要重建；模糊召回已自动停用，当前仅使用原生/前缀搜索。请运行 php flarum enhanced-search:reindex。
+    settings:
+      typo_tolerance_label: 开启错字容忍
+      typo_tolerance_help: 先通过 n-gram 索引召回候选，再容忍插入、删除、替换或相邻字符颠倒。纯数字始终精确匹配。
+      search_post_content_label: 搜索帖子正文
+      search_post_content_help: 在增强召回中包含当前用户可见的评论正文。超大型论坛若改用外部搜索服务，可关闭此项。
+      one_typo_length_label: 允许 1 个错字的最短长度
+      one_typo_length_help: 更短的词只进行精确、前缀和子串匹配。中文短语建议为 4；拉丁文字若偏重准确率可设为 5。
+      two_typo_length_label: 允许 2 个错字的最短长度
+      two_typo_length_help: 达到此长度后最多允许两次编辑，插件不会容忍超过两个错字。
+      native_result_threshold_label: 原生结果阈值
+      native_result_threshold_help: 仅当 MySQL 原生全文搜索结果少于此数值时，才执行增强 n-gram 召回。
+      candidate_limit_label: 模糊候选总上限
+      candidate_limit_help: 进入 Unicode 编辑距离重排前，标题和正文合计最多召回的数量，硬上限为 300。数值越大召回率越高，但 CPU 开销也越大。
+      suggestion_min_length_label: 搜索建议最短长度
+      suggestion_min_length_help: 顶栏搜索输入多少个字符后开始请求建议。修改后需要清理 Flarum 缓存。
