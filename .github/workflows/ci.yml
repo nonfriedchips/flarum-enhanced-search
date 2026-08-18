@@ -85,12 +85,15 @@ jobs:
           - label: MySQL 8.4
             image: mysql:8.4
             family: mysql
+            health_command: mysqladmin ping --protocol=tcp -h127.0.0.1 -uroot -penhanced_search_root --silent
           - label: MariaDB 10.11
             image: mariadb:10.11
             family: mariadb
+            health_command: healthcheck.sh --connect --innodb_initialized
           - label: MariaDB 11.8
             image: mariadb:11.8
             family: mariadb
+            health_command: healthcheck.sh --connect --innodb_initialized
 
     services:
       database:
@@ -107,7 +110,7 @@ jobs:
         ports:
           - 33311:3306
         options: >-
-          --health-cmd="mysqladmin ping --protocol=tcp -h127.0.0.1 -uroot -penhanced_search_root --silent"
+          --health-cmd="${{ matrix.health_command }}"
           --health-start-period=20s
           --health-interval=5s
           --health-timeout=5s
