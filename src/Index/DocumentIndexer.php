@@ -9,6 +9,7 @@ use Flarum\Post\CommentPost;
 use Flarum\Post\Post;
 use Flarum\User\User;
 use Illuminate\Database\ConnectionInterface;
+use NonFriedChips\EnhancedSearch\Index\Backend\SearchIndexBackend;
 use NonFriedChips\EnhancedSearch\Search\SearchOptions;
 use NonFriedChips\EnhancedSearch\Support\UnicodeText;
 
@@ -21,11 +22,16 @@ final class DocumentIndexer
 
     private ConnectionInterface $connection;
     private UnicodeText $text;
+    private SearchIndexBackend $backend;
 
-    public function __construct(ConnectionInterface $connection, UnicodeText $text)
-    {
+    public function __construct(
+        ConnectionInterface $connection,
+        UnicodeText $text,
+        SearchIndexBackend $backend
+    ) {
         $this->connection = $connection;
         $this->text = $text;
+        $this->backend = $backend;
     }
 
     public function indexDiscussion(Discussion $discussion): void
@@ -128,17 +134,24 @@ final class DocumentIndexer
             return;
         }
 
+        $payload = $this->backend->indexPayload($normalized);
+        $record = array_merge([
+            'model_type' => $type,
+            'model_id' => $modelId,
+            'discussion_id' => $discussionId,
+            'content' => $normalized,
+            'is_normalized' => true,
+            'updated_at' => date('Y-m-d H:i:s'),
+        ], $payload);
+        $updates = array_merge(
+            ['discussion_id', 'content', 'is_normalized', 'updated_at'],
+            array_keys($payload)
+        );
+
         $this->connection->table(self::TABLE)->upsert(
-            [[
-                'model_type' => $type,
-                'model_id' => $modelId,
-                'discussion_id' => $discussionId,
-                'content' => $normalized,
-                'is_normalized' => true,
-                'updated_at' => date('Y-m-d H:i:s'),
-            ]],
+            [$record],
             ['model_type', 'model_id'],
-            ['discussion_id', 'content', 'is_normalized', 'updated_at']
+            $updates
         );
     }
 }

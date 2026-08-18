@@ -9,6 +9,11 @@ use Flarum\Foundation\AbstractServiceProvider;
 use Flarum\Frontend\Assets;
 use Flarum\Frontend\Compiler\Source\SourceCollector;
 use Flarum\Settings\SettingsRepositoryInterface;
+use Illuminate\Database\ConnectionInterface;
+use Illuminate\Contracts\Container\Container;
+use NonFriedChips\EnhancedSearch\Index\Backend\EncodedNgrams;
+use NonFriedChips\EnhancedSearch\Index\Backend\SearchIndexBackend;
+use NonFriedChips\EnhancedSearch\Index\Backend\SearchIndexBackendFactory;
 use NonFriedChips\EnhancedSearch\Search\SearchOptions;
 use Psr\Log\LoggerInterface;
 
@@ -16,6 +21,13 @@ final class EnhancedSearchServiceProvider extends AbstractServiceProvider
 {
     public function register(): void
     {
+        $this->container->singleton(SearchIndexBackend::class, function (Container $container): SearchIndexBackend {
+            return (new SearchIndexBackendFactory(
+                $container->make(ConnectionInterface::class),
+                $container->make(EncodedNgrams::class)
+            ))->make();
+        });
+
         $this->container->resolving('flarum.assets.forum', function (Assets $assets): void {
             $settings = $this->container->make(SettingsRepositoryInterface::class);
             $length = SearchOptions::fromSettings($settings)->suggestionMinLength;

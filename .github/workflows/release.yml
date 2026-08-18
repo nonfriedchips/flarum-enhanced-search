@@ -28,7 +28,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
             echo "Release tags must use stable SemVer, for example v1.0.0." >&2
             exit 1
           fi
@@ -95,9 +95,106 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  database:
+    name: Database · ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: MySQL 8.4
+            image: mysql:8.4
+            family: mysql
+            health_command: mysqladmin ping --protocol=tcp -h127.0.0.1 -uroot -penhanced_search_root --silent
+          - label: MariaDB 10.11
+            image: mariadb:10.11
+            family: mariadb
+            health_command: healthcheck.sh --connect --innodb_initialized
+          - label: MariaDB 11.8
+            image: mariadb:11.8
+            family: mariadb
+            health_command: healthcheck.sh --connect --innodb_initialized
+
+    services:
+      database:
+        image: ${{ matrix.image }}
+        env:
+          MYSQL_ROOT_PASSWORD: enhanced_search_root
+          MYSQL_DATABASE: flarum_test
+          MYSQL_USER: flarum
+          MYSQL_PASSWORD: flarum_test_password
+          MARIADB_ROOT_PASSWORD: enhanced_search_root
+          MARIADB_DATABASE: flarum_test
+          MARIADB_USER: flarum
+          MARIADB_PASSWORD: flarum_test_password
+        ports:
+          - 33311:3306
+        options: >-
+          --health-cmd="${{ matrix.health_command }}"
+          --health-start-period=20s
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.3'
+          extensions: intl, mbstring, pdo_mysql
+          coverage: none
+          tools: composer:v2
+
+      - name: Install extension dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Verify database FULLTEXT contract
+        env:
+          ENHANCED_SEARCH_DB_HOST: 127.0.0.1
+          ENHANCED_SEARCH_DB_PORT: 33311
+          ENHANCED_SEARCH_DB_DATABASE: flarum_test
+          ENHANCED_SEARCH_DB_USERNAME: flarum
+          ENHANCED_SEARCH_DB_PASSWORD: flarum_test_password
+          ENHANCED_SEARCH_EXPECTED_DATABASE: ${{ matrix.family }}
+        run: composer test:database
+
+      - name: Install Flarum 1.8 with Enhanced Search
+        shell: bash
+        run: |
+          set -euo pipefail
+          site="$RUNNER_TEMP/flarum"
+          composer create-project flarum/flarum:^1.8.0 "$site" \
+            --no-interaction --no-progress --prefer-dist
+          composer --working-dir="$site" \
+            config repositories.enhanced-search path "$GITHUB_WORKSPACE"
+          composer --working-dir="$site" require \
+            nonfriedchips/flarum-enhanced-search:@dev \
+            --with-all-dependencies --no-interaction --no-progress
+          cd "$site"
+          php -d error_reporting=22527 flarum install \
+            -f "$GITHUB_WORKSPACE/tests/fixtures/install.json"
+          php -d error_reporting=22527 flarum extension:enable \
+            nonfriedchips-enhanced-search
+
+      - name: Run Flarum migration and search integration tests
+        env:
+          FLARUM_ROOT: ${{ runner.temp }}/flarum
+          ENHANCED_SEARCH_EXPECTED_DATABASE: ${{ matrix.family }}
+        run: |
+          php -d error_reporting=22527 tests/boot-smoke.php
+          php -d error_reporting=22527 tests/integration.php
+
   publish:
     name: Publish GitHub Release
-    needs: build
+    needs:
+      - build
+      - database
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -109,7 +206,11 @@ jobs:
           name: release-${{ github.ref_name }}
           path: dist
 
-      - name: Create or refresh GitHub Release
+      - name: Verify downloaded release bundle
+        working-directory: dist
+        run: sha256sum -c *.sha256
+
+      - name: Create and publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -117,11 +218,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+          if release_state="$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' 2>/dev/null)"; then
+            if [[ "$release_state" != "true" ]]; then
+              echo "Release $RELEASE_TAG is already published; refusing to replace its assets." >&2
+              exit 1
+            fi
+
             gh release upload "$RELEASE_TAG" dist/* --clobber
           else
             gh release create "$RELEASE_TAG" dist/* \
+              --draft \
               --verify-tag \
               --generate-notes \
               --title "Enhanced Search ${RELEASE_TAG}"
           fi
+
+          gh release edit "$RELEASE_TAG" --draft=false --latest

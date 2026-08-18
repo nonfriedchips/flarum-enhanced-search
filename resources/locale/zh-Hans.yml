@@ -12,7 +12,7 @@ nonfriedchips-enhanced-search:
       two_typo_length_label: 允许 2 个错字的最短长度
       two_typo_length_help: 达到此长度后最多允许两次编辑，插件不会容忍超过两个错字。
       native_result_threshold_label: 原生结果阈值
-      native_result_threshold_help: 仅当 MySQL 原生全文搜索结果少于此数值时，才执行增强 n-gram 召回。
+      native_result_threshold_help: 仅当数据库原生全文搜索结果少于此数值时，才执行增强 n-gram 召回。
       candidate_limit_label: 模糊候选总上限
       candidate_limit_help: 进入 Unicode 编辑距离重排前，标题和正文合计最多召回的数量，硬上限为 300。数值越大召回率越高，但 CPU 开销也越大。
       suggestion_min_length_label: 搜索建议最短长度

@@ -8,9 +8,15 @@ use Flarum\Discussion\Search\DiscussionSearcher;
 use Flarum\Extension\ExtensionManager;
 use Flarum\Post\CommentPost;
 use Flarum\Query\QueryCriteria;
+use Flarum\Settings\SettingsRepositoryInterface;
 use Flarum\User\User;
 use Illuminate\Database\ConnectionInterface;
+use NonFriedChips\EnhancedSearch\Console\ReindexCommand;
+use NonFriedChips\EnhancedSearch\Index\Backend\MariaDbEncodedNgramBackend;
+use NonFriedChips\EnhancedSearch\Index\Backend\SearchIndexBackend;
 use NonFriedChips\EnhancedSearch\Index\DocumentIndexer;
+use NonFriedChips\EnhancedSearch\Search\SearchOptions;
+use Symfony\Component\Console\Tester\CommandTester;
 
 set_exception_handler(static function (Throwable $exception): void {
     $message = preg_replace('/\s+/u', ' ', $exception->getMessage()) ?? 'unknown integration error';
@@ -18,7 +24,7 @@ set_exception_handler(static function (Throwable $exception): void {
     exit(1);
 });
 
-$root = dirname(__DIR__, 3);
+$root = getenv('FLARUM_ROOT') ?: dirname(__DIR__, 3);
 $site = require $root.'/site.php';
 $app = $site->bootApp();
 $container = $app->getContainer();
@@ -47,9 +53,26 @@ if (! $actor) {
 
 /** @var DocumentIndexer $indexer */
 $indexer = $container->make(DocumentIndexer::class);
+/** @var SearchIndexBackend $backend */
+$backend = $container->make(SearchIndexBackend::class);
 /** @var DiscussionSearcher $searcher */
 $searcher = $container->make(DiscussionSearcher::class);
 $schema = $connection->getSchemaBuilder();
+$expectedDatabase = getenv('ENHANCED_SEARCH_EXPECTED_DATABASE');
+
+if ($expectedDatabase !== false && $expectedDatabase !== '') {
+    $actualDatabase = $backend instanceof MariaDbEncodedNgramBackend ? 'mariadb' : 'mysql';
+
+    if ($actualDatabase !== strtolower($expectedDatabase)) {
+        fwrite(STDERR, "FAIL: the Flarum container selected the wrong database search backend.\n");
+        exit(1);
+    }
+}
+
+if (! $schema->hasColumn(DocumentIndexer::TABLE, $backend->fulltextColumn())) {
+    fwrite(STDERR, "FAIL: the Flarum migration did not create the selected backend's FULLTEXT column.\n");
+    exit(1);
+}
 $nonce = substr(hash('sha256', (string) microtime(true)), 0, 10);
 
 /**
@@ -187,6 +210,14 @@ try {
     requireCondition((int) $ranked->first()->id === (int) $exactDiscussion->id, 'exact title did not rank above typo title');
     requireCondition($ranked->contains('id', $fuzzyDiscussion->id), 'one-character Chinese typo was not recalled');
 
+    // Do not include the shared fixture nonce here: this must enter the
+    // candidate set through the query's real CJK bigrams.
+    $plainTypoResults = search($searcher, $actor, '模胡搜索');
+    requireCondition(
+        $plainTypoResults->contains('id', $exactDiscussion->id),
+        'a CJK typo without a shared fixture nonce was not recalled'
+    );
+
     $transposedResults = search($searcher, $actor, '甲乙丙丁');
     requireCondition(
         $transposedResults->contains('id', $transposedDiscussion->id),
@@ -209,7 +240,50 @@ try {
 
     search($searcher, $actor, "%_'\\");
 
-    fwrite(STDOUT, "Enhanced Search MySQL integration tests passed.\n");
+    // Remove committed derived rows, then prove the real console command
+    // rebuilds both title and post documents through the selected backend.
+    $connection->table(DocumentIndexer::TABLE)
+        ->where('discussion_id', (int) $contentDiscussion->id)
+        ->delete();
+    /** @var SettingsRepositoryInterface $settings */
+    $settings = $container->make(SettingsRepositoryInterface::class);
+    $settings->set(SearchOptions::PREFIX.'index_dirty', '1');
+    /** @var ReindexCommand $reindex */
+    $reindex = $container->make(ReindexCommand::class);
+    $reindex->setLaravel($container);
+    $command = new CommandTester($reindex);
+    $reindexExit = $command->execute(['--chunk' => 20], ['interactive' => false]);
+    requireCondition($reindexExit === 0, 'enhanced-search:reindex returned a failure status');
+    requireCondition(
+        $connection->table('settings')
+            ->where('key', SearchOptions::PREFIX.'index_dirty')
+            ->value('value') === '0',
+        'enhanced-search:reindex did not clear the dirty marker'
+    );
+    // Reindex intentionally performs a compare-and-swap directly in SQL.
+    // Refresh Flarum's in-process settings cache before searching again.
+    $settings->set(SearchOptions::PREFIX.'index_dirty', '0');
+    requireCondition(
+        $connection->table(DocumentIndexer::TABLE)
+            ->where('model_type', DocumentIndexer::TYPE_DISCUSSION)
+            ->where('model_id', (int) $contentDiscussion->id)
+            ->exists(),
+        'reindex did not restore a discussion document'
+    );
+    requireCondition(
+        $connection->table(DocumentIndexer::TABLE)
+            ->where('model_type', DocumentIndexer::TYPE_POST)
+            ->where('model_id', (int) $contentPost->id)
+            ->exists(),
+        'reindex did not restore a post document'
+    );
+    $reindexedContentResults = search($searcher, $actor, "{$nonce} 量子捡索");
+    requireCondition(
+        $reindexedContentResults->contains('id', $contentDiscussion->id),
+        'fuzzy post search failed after reindex'
+    );
+
+    fwrite(STDOUT, "Enhanced Search database integration tests passed.\n");
 } catch (Throwable $exception) {
     fwrite(STDERR, 'FAIL: '.$exception->getMessage()."\n");
     $exitCode = 1;

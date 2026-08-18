@@ -139,7 +139,7 @@ final class HybridDiscussionSearch
                     ]);
                 }
 
-                $this->logger->warning('Enhanced Search n-gram retrieval failed; returning native FULLTEXT results only.', [
+                $this->logger->warning('Enhanced Search candidate retrieval failed; returning native FULLTEXT results only.', [
                     'exception' => get_class($exception),
                     'code' => $exception->getCode(),
                 ]);

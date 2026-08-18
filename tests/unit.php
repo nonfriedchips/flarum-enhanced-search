@@ -5,6 +5,8 @@ declare(strict_types=1);
 use Flarum\Settings\SettingsRepositoryInterface;
 use Flarum\Extension\Extension;
 use Illuminate\Container\Container;
+use NonFriedChips\EnhancedSearch\Index\Backend\EncodedNgrams;
+use NonFriedChips\EnhancedSearch\Index\Backend\SearchIndexBackendFactory;
 use NonFriedChips\EnhancedSearch\Index\IndexLifecycle;
 use NonFriedChips\EnhancedSearch\Search\DamerauLevenshtein;
 use NonFriedChips\EnhancedSearch\Search\FuzzyScorer;
@@ -73,6 +75,7 @@ function assertGreater(float $left, float $right, string $message): void
 }
 
 $text = new UnicodeText();
+$encodedNgrams = new EncodedNgrams($text);
 $distance = new DamerauLevenshtein($text);
 $planner = new QueryPlanner($text);
 $scorer = new FuzzyScorer($text, $distance);
@@ -82,6 +85,38 @@ assertSameValue('flarum 搜索', $text->normalize('  Ｆｌａｒｕｍ，搜索
 assertSameValue('a b_c', $text->normalize('<b>A</b> &amp; B_C'), 'HTML entities or tags were not normalized safely');
 assertSameValue(['乙甲丙丁', '甲丙乙丁', '甲乙丁丙'], $text->adjacentTranspositions('甲乙丙丁'), 'adjacent transposition variants are incorrect');
 assertSameValue('%!%!!!_%', LikePattern::contains('%!_'), 'LIKE wildcard escaping is incorrect');
+
+$latinToken = 'bgrm000061000062';
+$cjkTokens = ['bgrm00657000636e', 'bgrm00636e005e93'];
+assertSameValue([$latinToken, 'bgrm000063000064'], $encodedNgrams->tokens('ab cd', false), 'encoded grams crossed a word boundary');
+assertSameValue('', $encodedNgrams->query('a 中'), 'single-character terms unexpectedly produced FULLTEXT tokens');
+assertSameValue('', $encodedNgrams->phraseQuery(['a']), 'single-character transposition unexpectedly produced a Boolean phrase');
+assertSameValue(
+    $latinToken.' bgrmwordboundary bgrm000063000064',
+    $encodedNgrams->document('ab cd'),
+    'encoded document did not preserve the word boundary for phrase search'
+);
+assertSameValue($cjkTokens, $encodedNgrams->tokens('数据库', false), 'CJK code points were not encoded losslessly');
+$repeatedToken = 'bgrm000061000061';
+assertSameValue([$repeatedToken, $repeatedToken], $encodedNgrams->tokens('aaa', false), 'document token frequency was not preserved');
+assertSameValue([$repeatedToken], $encodedNgrams->tokens('aaa', true), 'query tokens were not deduplicated');
+assertSameValue(
+    '"bgrm007532004e59 bgrm004e59004e19 bgrm004e19004e01"',
+    $encodedNgrams->phraseQuery(['甲乙丙丁']),
+    'encoded Boolean phrase order is incorrect'
+);
+
+foreach ($encodedNgrams->tokens('ab 数据库', false) as $token) {
+    assertSameValue(EncodedNgrams::TOKEN_LENGTH, strlen($token), 'encoded ngram token length is not fixed');
+    assertSameValue(1, preg_match('/^[a-z0-9]+$/', $token), 'encoded ngram contains a FULLTEXT Boolean operator');
+}
+
+assertSameValue(false, SearchIndexBackendFactory::isMariaDb('8.4.11 MySQL Community Server'), 'MySQL was misclassified as MariaDB');
+assertSameValue(true, SearchIndexBackendFactory::isMariaDb('10.11.8-MariaDB-0+deb12u1'), 'MariaDB was not detected');
+assertSameValue('10.11.8', SearchIndexBackendFactory::mariaDbVersion('5.5.5-10.11.8-MariaDB-0+deb12u1'), 'MariaDB compatibility prefix was parsed incorrectly');
+assertSameValue('10.6.17', SearchIndexBackendFactory::mariaDbVersion('10.6.17-12-MariaDB-enterprise'), 'MariaDB Enterprise build revision was parsed incorrectly');
+assertSameValue('11.8.3', SearchIndexBackendFactory::mariaDbVersion('MariaDB Server 11.8.3'), 'MariaDB prefix version was parsed incorrectly');
+assertSameValue(null, SearchIndexBackendFactory::mariaDbVersion('8.4.11 MySQL Community Server'), 'MySQL unexpectedly produced a MariaDB version');
 
 assertSameValue(1, $distance->distance('flarmu', 'flarum'), 'adjacent transposition should cost one edit');
 assertSameValue(1, $distance->distance('模胡搜索', '模糊搜索'), 'a Chinese substitution should cost one edit');
