@@ -12,7 +12,7 @@ nonfriedchips-enhanced-search:
       two_typo_length_label: Minimum length for two typos
       two_typo_length_help: The minimum term length at which two edits are accepted. The hard maximum is two.
       native_result_threshold_label: Native result threshold
-      native_result_threshold_help: Enhanced n-gram retrieval runs only when MySQL full-text search returns fewer results than this value.
+      native_result_threshold_help: Enhanced n-gram retrieval runs only when the database's native full-text search returns fewer results than this value.
       candidate_limit_label: Total fuzzy candidate limit
       candidate_limit_help: Maximum combined title and post candidates before Unicode edit-distance ranking, with a hard cap of 300. Larger values improve recall but use more CPU.
       suggestion_min_length_label: Suggestion minimum length

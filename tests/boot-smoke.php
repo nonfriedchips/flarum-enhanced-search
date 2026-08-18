@@ -14,7 +14,7 @@ set_exception_handler(static function (Throwable $exception): void {
     exit(1);
 });
 
-$root = dirname(__DIR__, 3);
+$root = getenv('FLARUM_ROOT') ?: dirname(__DIR__, 3);
 $site = require $root.'/site.php';
 
 // Enabled extensions are loaded by Flarum automatically. Use --manual only

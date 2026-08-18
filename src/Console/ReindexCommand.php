@@ -18,7 +18,7 @@ final class ReindexCommand extends Command
     protected $signature = 'enhanced-search:reindex
         {--chunk=200 : Models processed per database batch}';
 
-    protected $description = 'Rebuild the local n-gram search index for discussions, posts, and users';
+    protected $description = 'Rebuild the local enhanced-search index for discussions, posts, and users';
 
     private DocumentIndexer $indexer;
     private ConnectionInterface $connection;

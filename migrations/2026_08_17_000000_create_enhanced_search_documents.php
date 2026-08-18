@@ -7,12 +7,22 @@ use Flarum\Post\Post;
 use Flarum\User\User;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\Schema\Builder;
+use NonFriedChips\EnhancedSearch\Index\Backend\EncodedNgrams;
+use NonFriedChips\EnhancedSearch\Index\Backend\SearchIndexBackendFactory;
 use NonFriedChips\EnhancedSearch\Index\DocumentIndexer;
 use NonFriedChips\EnhancedSearch\Search\SearchOptions;
 use NonFriedChips\EnhancedSearch\Support\UnicodeText;
 
 return [
     'up' => function (Builder $schema): void {
+        $connection = $schema->getConnection();
+        $text = new UnicodeText();
+        $backend = (new SearchIndexBackendFactory(
+            $connection,
+            new EncodedNgrams($text)
+        ))->make();
+        $backend->assertCompatible();
+
         if ($schema->hasTable(DocumentIndexer::TABLE)) {
             // A previous interrupted enable can leave an untracked table
             // without its FULLTEXT index. This table contains derived data
@@ -21,32 +31,9 @@ return [
             $schema->drop(DocumentIndexer::TABLE);
         }
 
-        $connection = $schema->getConnection();
-
-        if ($connection->getDriverName() !== 'mysql') {
-            throw new RuntimeException('Enhanced Search 1.x requires Oracle MySQL with the built-in ngram parser.');
-        }
-
-        $versionRow = $connection->selectOne('SELECT VERSION() AS version');
-        $version = is_object($versionRow) ? (string) $versionRow->version : '';
-
-        if (stripos($version, 'mariadb') !== false) {
-            throw new RuntimeException('Enhanced Search uses MySQL ngram FULLTEXT indexes, which are not supported by MariaDB.');
-        }
-
-        $ngramRow = $connection->selectOne('SELECT @@ngram_token_size AS token_size');
-        $ngramTokenSize = is_object($ngramRow) ? (int) $ngramRow->token_size : 0;
-
-        if ($ngramTokenSize !== SearchOptions::NGRAM_TOKEN_SIZE) {
-            throw new RuntimeException(
-                'Enhanced Search requires MySQL ngram_token_size='.
-                SearchOptions::NGRAM_TOKEN_SIZE.
-                "; the server currently reports {$ngramTokenSize}."
-            );
-        }
-
         try {
-            $schema->create(DocumentIndexer::TABLE, function (Blueprint $table): void {
+            $schema->create(DocumentIndexer::TABLE, function (Blueprint $table) use ($backend): void {
+                $table->engine = 'InnoDB';
                 $table->bigIncrements('id');
                 $table->string('model_type', 16);
                 $table->unsignedBigInteger('model_id');
@@ -57,9 +44,10 @@ return [
 
                 $table->unique(['model_type', 'model_id'], 'enhanced_search_model_unique');
                 $table->index(['model_type', 'discussion_id'], 'enhanced_search_discussion_lookup');
+                $backend->configureTable($table);
             });
 
-            $indexer = new DocumentIndexer($connection, new UnicodeText());
+            $indexer = new DocumentIndexer($connection, $text, $backend);
 
             // Use exactly the same formatter and normalizer as live updates.
             // This avoids indexing raw formatter XML that a renderer might
@@ -83,12 +71,7 @@ return [
                 }
             });
 
-            $grammar = $connection->getQueryGrammar();
-            $table = $grammar->wrapTable(DocumentIndexer::TABLE);
-            $content = $grammar->wrap('content');
-            $index = $grammar->wrap('enhanced_search_content_ngram');
-
-            $connection->statement("ALTER TABLE {$table} ADD FULLTEXT INDEX {$index} ({$content}) WITH PARSER ngram");
+            $backend->createFulltextIndex(DocumentIndexer::TABLE);
             $connection->table('settings')->upsert(
                 [[
                     'key' => SearchOptions::PREFIX.'index_dirty',
@@ -101,7 +84,7 @@ return [
             $schema->dropIfExists(DocumentIndexer::TABLE);
 
             throw new RuntimeException(
-                'Unable to build the normalized MySQL ngram index required by Enhanced Search.',
+                'Unable to build the '.$backend->name().' index required by Enhanced Search.',
                 0,
                 $exception
             );

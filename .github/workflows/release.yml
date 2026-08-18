@@ -95,9 +95,103 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  database:
+    name: Database · ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: MySQL 8.4
+            image: mysql:8.4
+            family: mysql
+          - label: MariaDB 10.11
+            image: mariadb:10.11
+            family: mariadb
+          - label: MariaDB 11.8
+            image: mariadb:11.8
+            family: mariadb
+
+    services:
+      database:
+        image: ${{ matrix.image }}
+        env:
+          MYSQL_ROOT_PASSWORD: enhanced_search_root
+          MYSQL_DATABASE: flarum_test
+          MYSQL_USER: flarum
+          MYSQL_PASSWORD: flarum_test_password
+          MARIADB_ROOT_PASSWORD: enhanced_search_root
+          MARIADB_DATABASE: flarum_test
+          MARIADB_USER: flarum
+          MARIADB_PASSWORD: flarum_test_password
+        ports:
+          - 33311:3306
+        options: >-
+          --health-cmd="mysqladmin ping --protocol=tcp -h127.0.0.1 -uroot -penhanced_search_root --silent"
+          --health-start-period=20s
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.3'
+          extensions: intl, mbstring, pdo_mysql
+          coverage: none
+          tools: composer:v2
+
+      - name: Install extension dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Verify database FULLTEXT contract
+        env:
+          ENHANCED_SEARCH_DB_HOST: 127.0.0.1
+          ENHANCED_SEARCH_DB_PORT: 33311
+          ENHANCED_SEARCH_DB_DATABASE: flarum_test
+          ENHANCED_SEARCH_DB_USERNAME: flarum
+          ENHANCED_SEARCH_DB_PASSWORD: flarum_test_password
+          ENHANCED_SEARCH_EXPECTED_DATABASE: ${{ matrix.family }}
+        run: composer test:database
+
+      - name: Install Flarum 1.8 with Enhanced Search
+        shell: bash
+        run: |
+          set -euo pipefail
+          site="$RUNNER_TEMP/flarum"
+          composer create-project flarum/flarum:^1.8.0 "$site" \
+            --no-interaction --no-progress --prefer-dist
+          composer --working-dir="$site" \
+            config repositories.enhanced-search path "$GITHUB_WORKSPACE"
+          composer --working-dir="$site" require \
+            nonfriedchips/flarum-enhanced-search:@dev \
+            --with-all-dependencies --no-interaction --no-progress
+          cd "$site"
+          php -d error_reporting=22527 flarum install \
+            -f "$GITHUB_WORKSPACE/tests/fixtures/install.json"
+          php -d error_reporting=22527 flarum extension:enable \
+            nonfriedchips-enhanced-search
+
+      - name: Run Flarum migration and search integration tests
+        env:
+          FLARUM_ROOT: ${{ runner.temp }}/flarum
+          ENHANCED_SEARCH_EXPECTED_DATABASE: ${{ matrix.family }}
+        run: |
+          php -d error_reporting=22527 tests/boot-smoke.php
+          php -d error_reporting=22527 tests/integration.php
+
   publish:
     name: Publish GitHub Release
-    needs: build
+    needs:
+      - build
+      - database
     runs-on: ubuntu-latest
     permissions:
       contents: write

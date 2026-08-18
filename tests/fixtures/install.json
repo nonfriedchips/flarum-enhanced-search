@@ -1,0 +1,19 @@
+{
+    "debug": true,
+    "baseUrl": "http://127.0.0.1",
+    "databaseConfiguration": {
+        "driver": "mysql",
+        "host": "127.0.0.1",
+        "port": 33311,
+        "database": "flarum_test",
+        "username": "flarum",
+        "password": "flarum_test_password",
+        "prefix": ""
+    },
+    "adminUser": {
+        "username": "admin",
+        "password": "test-password-1234",
+        "email": "admin@example.com"
+    },
+    "extensions": "flarum-approval"
+}

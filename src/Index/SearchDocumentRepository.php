@@ -8,6 +8,7 @@ use Flarum\Post\Post;
 use Flarum\Search\SearchState;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Query\Builder;
+use NonFriedChips\EnhancedSearch\Index\Backend\SearchIndexBackend;
 use NonFriedChips\EnhancedSearch\Search\QueryPlan;
 use NonFriedChips\EnhancedSearch\Search\SearchOptions;
 use NonFriedChips\EnhancedSearch\Support\UnicodeText;
@@ -16,11 +17,16 @@ final class SearchDocumentRepository
 {
     private ConnectionInterface $connection;
     private UnicodeText $text;
+    private SearchIndexBackend $backend;
 
-    public function __construct(ConnectionInterface $connection, UnicodeText $text)
-    {
+    public function __construct(
+        ConnectionInterface $connection,
+        UnicodeText $text,
+        SearchIndexBackend $backend
+    ) {
         $this->connection = $connection;
         $this->text = $text;
+        $this->backend = $backend;
     }
 
     /** @return object[] */
@@ -92,9 +98,8 @@ final class SearchDocumentRepository
 
     private function documentQuery(string $type, QueryPlan $plan): Builder
     {
-        // MySQL's ngram parser needs at least two characters with the default
-        // token size. Never replace that indexed lookup with a leading-
-        // wildcard LIKE: LIMIT would cap returned rows but not rows scanned.
+        // Both backends index two-character grams. Never replace this lookup
+        // with a leading-wildcard LIKE: LIMIT caps returned rows, not scans.
         if ($this->text->length($plan->compact()) < SearchOptions::NGRAM_TOKEN_SIZE) {
             throw new \InvalidArgumentException('The ngram candidate query requires at least two characters.');
         }
@@ -109,37 +114,57 @@ final class SearchDocumentRepository
             ->where('search_documents.model_type', $type);
 
         $grammar = $query->getGrammar();
-        $column = $grammar->wrap('search_documents.content');
-        $naturalMatch = "MATCH ({$column}) AGAINST (? IN NATURAL LANGUAGE MODE)";
-        $transpositions = $this->transpositionQuery($plan);
+        $column = $grammar->wrap('search_documents.'.$this->backend->fulltextColumn());
+        $fulltext = $this->backend->query($plan, $this->transpositionVariants($plan));
 
-        if ($transpositions === '') {
-            $query
-                ->selectRaw($naturalMatch.' AS ngram_score', [$plan->normalized()])
-                ->whereRaw($naturalMatch, [$plan->normalized()]);
-        } else {
+        if ($fulltext->isEmpty()) {
+            return $query
+                ->selectRaw('0 AS ngram_score')
+                ->whereRaw('1 = 0');
+        }
+
+        $naturalMatch = "MATCH ({$column}) AGAINST (? IN NATURAL LANGUAGE MODE)";
+        $candidateMatch = $fulltext->candidateUsesBooleanMode()
+            ? "MATCH ({$column}) AGAINST (? IN BOOLEAN MODE)"
+            : $naturalMatch;
+        $scoreExpressions = [$naturalMatch];
+        $scoreBindings = [$fulltext->rankingText()];
+
+        if ($candidateMatch !== $naturalMatch || $fulltext->candidateText() !== $fulltext->rankingText()) {
+            $scoreExpressions[] = $candidateMatch;
+            $scoreBindings[] = $fulltext->candidateText();
+        }
+
+        $swapMatch = null;
+
+        if ($fulltext->transpositionText() !== '') {
             // A four-character middle transposition can share no bigram with
             // the query. Add a tightly bounded set of exact adjacent-swap
             // phrases so those rows still reach the PHP edit-distance stage.
             $swapMatch = "MATCH ({$column}) AGAINST (? IN BOOLEAN MODE)";
-            $query
-                ->selectRaw(
-                    "GREATEST({$naturalMatch}, {$swapMatch}) AS ngram_score",
-                    [$plan->normalized(), $transpositions]
-                )
-                ->where(function (Builder $where) use ($naturalMatch, $swapMatch, $plan, $transpositions): void {
-                    $where
-                        ->whereRaw($naturalMatch, [$plan->normalized()])
-                        ->orWhereRaw($swapMatch, [$transpositions]);
-                });
+            $scoreExpressions[] = $swapMatch;
+            $scoreBindings[] = $fulltext->transpositionText();
         }
+
+        $scoreExpression = count($scoreExpressions) === 1
+            ? $scoreExpressions[0]
+            : 'GREATEST('.implode(', ', $scoreExpressions).')';
+        $query->selectRaw($scoreExpression.' AS ngram_score', $scoreBindings);
+        $query->where(function (Builder $where) use ($candidateMatch, $fulltext, $swapMatch): void {
+            $where->whereRaw($candidateMatch, [$fulltext->candidateText()]);
+
+            if ($swapMatch !== null) {
+                $where->orWhereRaw($swapMatch, [$fulltext->transpositionText()]);
+            }
+        });
 
         return $query
             ->orderByDesc('ngram_score')
             ->orderByDesc('search_documents.model_id');
     }
 
-    private function transpositionQuery(QueryPlan $plan): string
+    /** @return string[] */
+    private function transpositionVariants(QueryPlan $plan): array
     {
         $variants = [];
 
@@ -160,8 +185,6 @@ final class SearchDocumentRepository
             }
         }
 
-        return implode(' ', array_map(static function (string $variant): string {
-            return '"'.$variant.'"';
-        }, array_keys($variants)));
+        return array_keys($variants);
     }
 }

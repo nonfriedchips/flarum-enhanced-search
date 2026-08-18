@@ -93,7 +93,7 @@ final class HybridUserSearch
                     ]);
                 }
 
-                $this->logger->warning('Enhanced Search user n-gram retrieval failed; returning username-prefix results only.', [
+                $this->logger->warning('Enhanced Search user candidate retrieval failed; returning username-prefix results only.', [
                     'exception' => get_class($exception),
                     'code' => $exception->getCode(),
                 ]);
