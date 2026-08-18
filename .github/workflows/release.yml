@@ -28,7 +28,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
             echo "Release tags must use stable SemVer, for example v1.0.0." >&2
             exit 1
           fi
@@ -206,7 +206,11 @@ jobs:
           name: release-${{ github.ref_name }}
           path: dist
 
-      - name: Create or refresh GitHub Release
+      - name: Verify downloaded release bundle
+        working-directory: dist
+        run: sha256sum -c *.sha256
+
+      - name: Create and publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -214,11 +218,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+          if release_state="$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' 2>/dev/null)"; then
+            if [[ "$release_state" != "true" ]]; then
+              echo "Release $RELEASE_TAG is already published; refusing to replace its assets." >&2
+              exit 1
+            fi
+
             gh release upload "$RELEASE_TAG" dist/* --clobber
           else
             gh release create "$RELEASE_TAG" dist/* \
+              --draft \
               --verify-tag \
               --generate-notes \
               --title "Enhanced Search ${RELEASE_TAG}"
           fi
+
+          gh release edit "$RELEASE_TAG" --draft=false --latest

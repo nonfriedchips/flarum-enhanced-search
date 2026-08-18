@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-18
+
 ### Added
 
 - Added MariaDB support through collision-free, fixed-length Unicode bigram tokens stored in a standard InnoDB FULLTEXT index.
@@ -12,6 +14,7 @@ All notable changes to this project are documented in this file.
 ### Changed
 
 - Kept existing Oracle MySQL installations on the native `ngram` parser path, so upgrading does not rebuild their derived search table.
+- Reindex now validates the active database FULLTEXT settings before clearing derived documents and keeps the index marked dirty when they are incompatible.
 
 ## [1.0.1] - 2026-08-18
 
@@ -32,6 +35,7 @@ All notable changes to this project are documented in this file.
 - English and Simplified Chinese admin settings.
 - Unit, boot-smoke, MySQL integration, CI, and tag-based release workflows.
 
+[Unreleased]: https://github.com/nonfriedchips/flarum-enhanced-search/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/nonfriedchips/flarum-enhanced-search/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/nonfriedchips/flarum-enhanced-search/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/nonfriedchips/flarum-enhanced-search/releases/tag/v1.0.0
-[Unreleased]: https://github.com/nonfriedchips/flarum-enhanced-search/compare/v1.0.1...HEAD

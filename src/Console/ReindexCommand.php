@@ -10,8 +10,10 @@ use Flarum\Settings\SettingsRepositoryInterface;
 use Flarum\User\User;
 use Illuminate\Console\Command;
 use Illuminate\Database\ConnectionInterface;
+use NonFriedChips\EnhancedSearch\Index\Backend\SearchIndexBackend;
 use NonFriedChips\EnhancedSearch\Index\DocumentIndexer;
 use NonFriedChips\EnhancedSearch\Search\SearchOptions;
+use Throwable;
 
 final class ReindexCommand extends Command
 {
@@ -21,17 +23,20 @@ final class ReindexCommand extends Command
     protected $description = 'Rebuild the local enhanced-search index for discussions, posts, and users';
 
     private DocumentIndexer $indexer;
+    private SearchIndexBackend $backend;
     private ConnectionInterface $connection;
     private SettingsRepositoryInterface $settings;
 
     public function __construct(
         DocumentIndexer $indexer,
+        SearchIndexBackend $backend,
         ConnectionInterface $connection,
         SettingsRepositoryInterface $settings
     ) {
         parent::__construct();
 
         $this->indexer = $indexer;
+        $this->backend = $backend;
         $this->connection = $connection;
         $this->settings = $settings;
     }
@@ -41,6 +46,15 @@ final class ReindexCommand extends Command
         $chunkSize = max(20, min(2000, (int) $this->option('chunk')));
         $generation = 'reindex:'.bin2hex(random_bytes(16));
         $this->settings->set(SearchOptions::PREFIX.'index_dirty', $generation);
+
+        try {
+            $this->backend->assertCompatible();
+        } catch (Throwable $exception) {
+            $this->error('Cannot rebuild the enhanced-search index: '.$exception->getMessage());
+
+            return self::FAILURE;
+        }
+
         $discussionCount = Discussion::query()->count();
         $postCount = Post::query()->where('type', 'comment')->count();
         $userCount = User::query()->count();
